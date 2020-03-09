@@ -18,9 +18,9 @@
             </v-navigation-drawer>
 
             <v-app-bar
-                    app
-                    color="indigo"
-                    dark
+                app
+                color="indigo"
+                dark
             >
                 <v-app-bar-nav-icon @click.stop="drawer = !drawer" />
                 <v-toolbar-title>WS Tester</v-toolbar-title>
@@ -116,12 +116,100 @@
                                 <v-btn
                                     class="ma-2"
                                     outlined
+                                    color="warning"
+                                    @click="templates = true"
+                                >
+                                    Templates
+                                </v-btn>
+
+                                <v-btn
+                                    class="ma-2"
+                                    outlined
                                     color="error"
                                     @click="closeConnectionDialog = true"
                                 >
                                     Close connection
                                 </v-btn>
                             </div>
+
+                            <v-dialog v-model="templates" scrollable min-width="300px" max-width="95vw">
+                                <v-card>
+                                    <v-card-title>Choose the template:</v-card-title>
+                                    <v-divider></v-divider>
+                                    <v-card-text style="height: 95vh;">
+                                        <v-list subheader>
+                                            <div v-for="(category, key) in templatesData" :key="key">
+                                                <v-subheader>{{category.name}}</v-subheader>
+
+                                                <v-list-item
+                                                    v-for="(item, keyItem) in category.items"
+                                                    :key="item.title"
+                                                    :inactive="item.isEditingMode"
+                                                >
+
+                                                    <v-list-item-avatar>
+                                                        <v-btn icon @click="templatesData[key].items[keyItem].isEditingMode = !templatesData[key].items[keyItem].isEditingMode">
+                                                            <v-icon color="warning">mdi-pencil</v-icon>
+                                                        </v-btn>
+                                                    </v-list-item-avatar>
+
+                                                    <v-list-item-content>
+                                                        <v-list-item-title v-if="!item.isEditingMode">
+                                                            {{item.name}}
+                                                        </v-list-item-title>
+
+                                                        <div v-if="item.isEditingMode">
+                                                            <v-text-field
+                                                                label="Template name"
+                                                                :ref="'template-name-' + key"
+                                                                v-model="item.name"
+                                                            ></v-text-field>
+
+                                                            <v-select
+                                                                v-model="item.mode"
+                                                                :items="message_types"
+                                                                label="Message type"
+                                                                item-text="name"
+                                                                item-value="id"
+                                                                return-object
+                                                            ></v-select>
+
+                                                            <codemirror
+                                                                :id="'edit-' + key"
+                                                                :ref="'template-code-' + key"
+                                                                :value="item.code"
+                                                                :options="{...cmOptions, mode: item.mode.id}"
+                                                                @input="function(input){ item.code = input; }"
+                                                            >
+                                                            </codemirror>
+
+                                                            <div class="d-flex flex-md-row-reverse" style="margin-top: 10px; margin-bottom: 10px;">
+                                                                <v-btn small color="error" @click="templatesData[key].items.splice(keyItem, 1)">Delete</v-btn>
+                                                            </div>
+
+                                                        </div>
+
+                                                    </v-list-item-content>
+
+                                                    <v-list-item-avatar>
+                                                        <v-btn icon @click="loadTemplate(item); templatesData[key].items[keyItem].isEditingMode = false">
+                                                            <v-icon color="success">mdi-check</v-icon>
+                                                        </v-btn>
+                                                    </v-list-item-avatar>
+
+
+                                                </v-list-item>
+                                            </div>
+                                        </v-list>
+                                    </v-card-text>
+                                    <v-divider></v-divider>
+                                    <v-card-actions>
+                                        <v-spacer></v-spacer>
+                                        <v-btn color="success" text @click="templatesPushNewEntry()"><v-icon dark>mdi-plus</v-icon> Add</v-btn>
+                                        <v-btn color="error" text @click="templates = false">Close</v-btn>
+                                    </v-card-actions>
+                                </v-card>
+                            </v-dialog>
 
 
 
@@ -379,9 +467,27 @@
                 closeConnectionDialog: false,
                 protocols: "soap,wamp",
 
+                templates: false,
+                templatesData: [
+                    {
+                        name: "Global",
+                        items: []
+                    }
+                ],
+
                 disconnectReason: "Goodbye!",
                 disconnectCode: 1000,
             };
+        },
+
+        mounted: function(){
+            if(localStorage.templatesData){
+                try {
+                    this.templatesData = JSON.parse(localStorage.templatesData);
+                } catch (e) {
+                    console.warn("Can't load templates from LocalStorage: can't parse JSON: ", e);
+                }
+            }
         },
 
         methods: {
@@ -426,6 +532,7 @@
             },
 
             selectMode(){
+                this.cmOptions.mode = this.selected_message_type.id;
                 this.$refs.input.codemirror.setOption('mode', this.selected_message_type.id);
             },
 
@@ -448,6 +555,7 @@
                     this.websocket.onerror = function(e){ __parent.onError(e) };
                 } catch(e) {
                     console.error("Preparing connection error: ", e);
+                    this.isConnectingToHost = false;
                 }
 
 
@@ -466,9 +574,46 @@
                     console.error("Closing connection error: ", e);
                 }
 
+            },
+
+            loadTemplate(item){
+                this.code = item.code;
+                this.templates = false;
+                this.selected_message_type = item.mode;
+                this.selectMode();
+            },
+
+            templatesPushNewEntry() {
+                if(this.templatesData == null) this.templatesData = [];
+                if(this.templatesData[0] == null) this.templatesData.push({name: "Global", items: []});
+                if(this.templatesData[0].items == null) this.templatesData[0].items = [];
+
+                this.templatesData[0].items.push({
+                    name: 'New Entry',
+                    code: 'Hello world!',
+                    isEditingMode: true,
+                    mode: this.message_types[0]
+                });
+            },
+            saveTemplatesData(val){
+                localStorage.templatesData = JSON.stringify(val);
+            }
+        },
+
+        created: function () {
+            this.debouncedSaveTemplatesData = this._.debounce(this.saveTemplatesData, 500);
+        },
+
+        watch: {
+            templatesData: {
+                handler: function (val) {
+                    this.debouncedSaveTemplatesData(val);
+                },
+                deep: true
             }
 
         }
+
     };
 </script>
 
